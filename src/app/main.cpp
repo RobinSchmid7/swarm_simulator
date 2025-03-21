@@ -5,6 +5,7 @@
 #include <math.h>
 #include <deque>
 #include <chrono>
+#include <map>
 
 #include "../boids/boids.h"
 
@@ -41,24 +42,41 @@ public:
         {
             if(keyDown[GLFW_KEY_R] || neverRun || newMethod != currentMethod) {
                 currentMethod = newMethod;
-                boids.initializePositionsAndGroups(currentMethod, n);
+                
+                // Initialize both swarms
+                boids1.initializePositionsAndGroups(currentMethod, n);
+                boids2.initializePositionsAndGroups(currentMethod, n);
+                
                 initializeObstacles(obstacles);
 
-                leaderPos_01 = boids.getPositions().col(0);
-                leaderPos_screen = shift_01_to_screen(leaderPos_01, scale, width, height);
+                // Initialize leader positions - keep them clearly separated
+                leaderPos1_01 = TV(0.25, 0.5); // Left side
+                leaderPos1_screen = shift_01_to_screen(leaderPos1_01, scale, width, height);
+                boids1.setLeaderPosition(leaderPos1_01);
+                
+                // Position second leader on the right side
+                leaderPos2_01 = TV(0.75, 0.5); // Right side
+                leaderPos2_screen = shift_01_to_screen(leaderPos2_01, scale, width, height);
+                boids2.setLeaderPosition(leaderPos2_01);
 
                 neverRun = false;
             }
-            if(keyDown[GLFW_KEY_SPACE])
-                boids.pause();
+            
+            if(keyDown[GLFW_KEY_SPACE]) {
+                boids1.pause();
+                boids2.pause();
+            }
             if(keyDown[GLFW_KEY_ESCAPE])
                 exit(0);
             lastFrame = now;
 
-            if(draggingCircle)
-            {
-                leaderPos_screen(0) = mouseState.lastMouseX - draggingCircleOffset(0);
-                leaderPos_screen(1) = mouseState.lastMouseY - draggingCircleOffset(1);
+            // Handle dragging of either leader
+            if(draggingLeaderIndex == 0) {
+                leaderPos1_screen(0) = mouseState.lastMouseX - draggingCircleOffset(0);
+                leaderPos1_screen(1) = mouseState.lastMouseY - draggingCircleOffset(1);
+            } else if(draggingLeaderIndex == 1) {
+                leaderPos2_screen(0) = mouseState.lastMouseX - draggingCircleOffset(0);
+                leaderPos2_screen(1) = mouseState.lastMouseY - draggingCircleOffset(1);
             }
         }
     }
@@ -112,21 +130,50 @@ public:
     }
 
     void drawNanoVG() override {
-        boids.setBehaviourParam(currentMethod, currentScheme, currentInitialVelocity,timestep, boidMass, cohesionRadius, alignmentRadius, separationRadius,
-                                leaderObservationDistance, stopApproachLeaderRadius, friction, damping);
-        boids.setCollaborationParam(breedingRadius, eliminationRadius, maxNumParticles, maxNumNewBreeded, breedingPauseSteps,
-                                    collaborationStrategyRed, collaborationStrategyBlue, hunterGroupSize);
-        boids.setCollisionParam(trackingVelocity, obstacles);
-        boids.updateBehavior(currentMethod);
+        // Adjust boid behavior parameters to make movement smoother
+        // Increase damping to reduce vibration
+        T smoother_damping = 0.6; // Increased from 0.25 (assuming that was your value)
+        
+        // Slightly increase friction to slow down rapid changes
+        T smoother_friction = 2.5; // Increased from 2.0
+        
+        // Update both swarms with smoother parameters
+        boids1.setBehaviourParam(currentMethod, currentScheme, currentInitialVelocity, timestep, boidMass, 
+                               cohesionRadius, alignmentRadius, separationRadius,
+                               leaderObservationDistance, stopApproachLeaderRadius, 
+                               smoother_friction, smoother_damping); // Use smoother values
+        
+        boids2.setBehaviourParam(currentMethod, currentScheme, currentInitialVelocity, timestep, boidMass, 
+                               cohesionRadius, alignmentRadius, separationRadius,
+                               leaderObservationDistance, stopApproachLeaderRadius, 
+                               smoother_friction, smoother_damping); // Use smoother values
+        
+        boids1.setCollaborationParam(breedingRadius, eliminationRadius, maxNumParticles, maxNumNewBreeded, 
+                                    breedingPauseSteps, collaborationStrategyRed, collaborationStrategyBlue, hunterGroupSize);
+        boids2.setCollaborationParam(breedingRadius, eliminationRadius, maxNumParticles, maxNumNewBreeded, 
+                                    breedingPauseSteps, collaborationStrategyRed, collaborationStrategyBlue, hunterGroupSize);
+        
+        boids1.setCollisionParam(trackingVelocity, obstacles);
+        boids2.setCollisionParam(trackingVelocity, obstacles);
+        
+        boids1.updateBehavior(currentMethod);
+        boids2.updateBehavior(currentMethod);
 
-        TVStack boids_pos = boids.getPositions();
-        VectorXBool boids_groups = boids.getGroups();
+        // Get positions of both swarms
+        TVStack boids1_pos = boids1.getPositions();
+        TVStack boids2_pos = boids2.getPositions();
+        
+        // If needed, get groups
+        VectorXBool boids1_groups = boids1.getGroups();
+        VectorXBool boids2_groups = boids2.getGroups();
 
+        // Handle the drawing based on the current method
         switch (currentMethod) {
             case FREEFALL:
                 {
                     timestep = 0.01;
-                    drawBoids(boids_pos);
+                    drawBoids(boids1_pos, COLOR_RED, true);
+                    drawBoids(boids2_pos, COLOR_GREEN, true);
                 }
                 break;
 
@@ -143,7 +190,8 @@ public:
                         nvgFill(vg);
                     }
 
-                    drawBoids(boids_pos);
+                    drawBoids(boids1_pos, COLOR_RED, true);
+                    drawBoids(boids2_pos, COLOR_GREEN, true);
                 }
                 break;
 
@@ -152,7 +200,8 @@ public:
                     timestep = 0.05;
                     currentScheme = SYMPLETIC_EULER;
                     currentInitialVelocity = ZERO_VELOCITY;
-                    drawBoids(boids_pos);
+                    drawBoids(boids1_pos, COLOR_RED, true);
+                    drawBoids(boids2_pos, COLOR_GREEN, true);
                 }
                 break;
 
@@ -161,7 +210,8 @@ public:
                     timestep = 0.05;
                     currentScheme = SYMPLETIC_EULER;
                     currentInitialVelocity = RANDOM_VELOCITY;
-                    drawBoids(boids_pos);
+                    drawBoids(boids1_pos, COLOR_RED, true);
+                    drawBoids(boids2_pos, COLOR_GREEN, true);
                 }
                 break;
 
@@ -170,7 +220,8 @@ public:
                     timestep = 0.05;
                     currentScheme = SYMPLETIC_EULER;
                     currentInitialVelocity = RANDOM_VELOCITY;
-                    drawBoids(boids_pos);
+                    drawBoids(boids1_pos, COLOR_RED, true);
+                    drawBoids(boids2_pos, COLOR_GREEN, true);
                 }
                 break;
 
@@ -183,7 +234,8 @@ public:
                     // Collision object
                     drawCollisionObject(obstacles);
 
-                    drawBoids(boids_pos);
+                    drawBoids(boids1_pos, COLOR_RED, true);
+                    drawBoids(boids2_pos, COLOR_GREEN, true);
                 }
                 break;
 
@@ -193,26 +245,55 @@ public:
                     currentScheme = SYMPLETIC_EULER;
                     currentInitialVelocity = ZERO_VELOCITY;
 
-                    // Collision object
+                    // Draw collision objects
                     drawCollisionObject(obstacles);
 
-                    // Set leader position
-                    leaderPos_01 = shift_screen_to_01(leaderPos_screen, scale, width, height);
-                    boids_pos.col(0) = leaderPos_01;
-                    boids.setLeaderPosition(leaderPos_01);
+                    // Set leader 1 position
+                    leaderPos1_01 = shift_screen_to_01(leaderPos1_screen, scale, width, height);
+                    boids1_pos.col(0) = leaderPos1_01;
+                    boids1.setLeaderPosition(leaderPos1_01);
                     
-                    // Calculate leaderRadius_screen for collision detection but don't use it for drawing
-                    TV leaderPos_01_shifted = shift_01_to_screen(TV(leaderPos_01(0)+leaderRadius_01,leaderPos_01(1)+leaderRadius_01), scale, width, height);
-                    leaderRadius_screen = leaderPos_01_shifted(0) - leaderPos_screen(0);
+                    // Set leader 2 position
+                    leaderPos2_01 = shift_screen_to_01(leaderPos2_screen, scale, width, height);
+                    boids2_pos.col(0) = leaderPos2_01;
+                    boids2.setLeaderPosition(leaderPos2_01);
                     
-                    // Draw leader with same size as other boids but keep green color
+                    // Calculate leader radii for collision detection - use a larger value for visibility
+                    TV leaderPos1_01_shifted = shift_01_to_screen(TV(leaderPos1_01(0)+leaderRadius_01, leaderPos1_01(1)+leaderRadius_01), 
+                                                                scale, width, height);
+                    leaderRadius1_screen = leaderPos1_01_shifted(0) - leaderPos1_screen(0);
+                    
+                    TV leaderPos2_01_shifted = shift_01_to_screen(TV(leaderPos2_01(0)+leaderRadius_01, leaderPos2_01(1)+leaderRadius_01), 
+                                                                scale, width, height);
+                    leaderRadius2_screen = leaderPos2_01_shifted(0) - leaderPos2_screen(0);
+                    
+                    // Draw leader 1 (green) with a larger size
                     nvgBeginPath(vg);
-                    nvgCircle(vg, leaderPos_screen[0], leaderPos_screen[1], 2.f); // Use fixed size of 2.f
-                    nvgFillColor(vg, COLOR_LEADER);
+                    nvgCircle(vg, leaderPos1_screen[0], leaderPos1_screen[1], 5.f); // Increased from 2.f to 5.f
+                    nvgFillColor(vg, COLOR_LEADER); // Green
+                    nvgFill(vg);
+                    
+                    // Draw leader 2 (blue) with a larger size
+                    nvgBeginPath(vg);
+                    nvgCircle(vg, leaderPos2_screen[0], leaderPos2_screen[1], 5.f); // Increased from 2.f to 5.f
+                    nvgFillColor(vg, COLOR_BLUE);
                     nvgFill(vg);
 
-                    // Draw the rest of the boids
-                    drawBoids(boids_pos, true);
+                    // Draw debug text to show leader positions
+                    char buf[128];
+                    snprintf(buf, sizeof(buf), "Leader 1: (%.2f, %.2f)", leaderPos1_screen[0], leaderPos1_screen[1]);
+                    nvgFontSize(vg, 14.0f);
+                    nvgFontFace(vg, "sans");
+                    nvgFillColor(vg, COLOR_BLACK);
+                    nvgTextAlign(vg, NVG_ALIGN_LEFT | NVG_ALIGN_TOP);
+                    nvgText(vg, 10, 500, buf, NULL);
+                    
+                    snprintf(buf, sizeof(buf), "Leader 2: (%.2f, %.2f)", leaderPos2_screen[0], leaderPos2_screen[1]);
+                    nvgText(vg, 10, 520, buf, NULL);
+
+                    // Draw the boids for each swarm with different colors
+                    drawBoidsWithColor(boids1_pos, COLOR_RED, true);
+                    drawBoidsWithColor(boids2_pos, COLOR_GREEN, true);
                 }
                 break;
 
@@ -221,14 +302,14 @@ public:
                     timestep = 0.05;
                     currentScheme = SYMPLETIC_EULER;
                     currentInitialVelocity = RANDOM_VELOCITY;
-
-                    for (int i = 0; i < boids.getParticleNumber(); i++) {
-                        TV pos = boids_pos.col(i);
-
+                    
+                    // Draw each boid according to its group
+                    for (int i = 0; i < boids1.getParticleNumber(); i++) {
+                        TV pos = boids1_pos.col(i);
                         TV screen_pos = shift_01_to_screen(TV(pos[0], pos[1]), scale, width, height);
-
+                        
                         // Draw groups separately
-                        if (boids_groups(i)) {
+                        if (i < boids1_groups.size() && boids1_groups(i)) {
                             nvgBeginPath(vg);
                             nvgCircle(vg, screen_pos[0], screen_pos[1], 2.f);
                             nvgFillColor(vg, COLOR_RED);
@@ -238,6 +319,25 @@ public:
                             nvgBeginPath(vg);
                             nvgCircle(vg, screen_pos[0], screen_pos[1], 2.f);
                             nvgFillColor(vg, COLOR_BLUE);
+                            nvgFill(vg);
+                        }
+                    }
+                    
+                    for (int i = 0; i < boids2.getParticleNumber(); i++) {
+                        TV pos = boids2_pos.col(i);
+                        TV screen_pos = shift_01_to_screen(TV(pos[0], pos[1]), scale, width, height);
+                        
+                        // Draw groups separately
+                        if (i < boids2_groups.size() && boids2_groups(i)) {
+                            nvgBeginPath(vg);
+                            nvgCircle(vg, screen_pos[0], screen_pos[1], 2.f);
+                            nvgFillColor(vg, COLOR_GREEN);
+                            nvgFill(vg);
+                        }
+                        else {
+                            nvgBeginPath(vg);
+                            nvgCircle(vg, screen_pos[0], screen_pos[1], 2.f);
+                            nvgFillColor(vg, COLOR_RED);
                             nvgFill(vg);
                         }
                     }
@@ -257,82 +357,73 @@ public:
         }
     }
 
-    void drawBoids(TVStack &boids_pos, bool drawLeaderSeparately = false) {
+    void drawBoids(TVStack &boids_pos, NVGcolor boidColor, bool drawLeaderSeparately = false) {
         int startIndex = 0;
         if (drawLeaderSeparately) startIndex = 1;
         
-        // Store current positions and smoothed velocities
-        static TVStack prev_boids_pos;
-        static std::vector<TV> smoothed_velocities;
-        static bool first_frame = true;
+        // Store current positions and smoothed velocities - use separate maps for each swarm
+        static std::map<void*, TVStack> prev_boids_pos_map;
+        static std::map<void*, std::vector<TV>> smoothed_velocities_map;
         
-        // Smoothing factor (between 0 and 1)
+        // Get or create the entries for this swarm based on boids_pos pointer
+        void* swarm_id = &boids_pos;
+        if (prev_boids_pos_map.find(swarm_id) == prev_boids_pos_map.end()) {
+            prev_boids_pos_map[swarm_id] = boids_pos;
+            smoothed_velocities_map[swarm_id] = std::vector<TV>(boids_pos.cols(), TV::Zero());
+            return; // Skip first frame for this swarm
+        }
+        
+        // Reference to this swarm's data
+        TVStack& prev_boids_pos = prev_boids_pos_map[swarm_id];
+        std::vector<TV>& smoothed_velocities = smoothed_velocities_map[swarm_id];
+        
+        // Resize if needed
+        if (smoothed_velocities.size() != boids_pos.cols()) {
+            smoothed_velocities.resize(boids_pos.cols(), TV::Zero());
+        }
+        
+        // Smoothing and line params
         const T smoothing_factor = static_cast<T>(0.2);
-        
-        // Line scaling factor
         const T lineScale = static_cast<T>(2.0);
+        NVGcolor velocityLineColor = nvgRGBA(0, 180, 0, 255);
         
-        // Define a darker green color for the velocity lines
-        NVGcolor velocityLineColor = nvgRGBA(0, 180, 0, 255); // Full opacity, darker green
-        
-        // Initialize on first call
-        if (first_frame) {
-            prev_boids_pos = boids_pos;
-            smoothed_velocities.resize(boids.getParticleNumber(), TV::Zero());
-            first_frame = false;
-            return;
-        }
-        
-        // Resize smoothed_velocities if number of boids changed
-        if (smoothed_velocities.size() != boids.getParticleNumber()) {
-            smoothed_velocities.resize(boids.getParticleNumber(), TV::Zero());
-        }
-        
-        for (int i = startIndex; i < boids.getParticleNumber(); i++) {
+        for (int i = startIndex; i < boids_pos.cols(); i++) {
             TV pos = boids_pos.col(i);
             TV screen_pos = shift_01_to_screen(TV(pos[0], pos[1]), scale, width, height);
             
-            // Draw boid circle
+            // Draw boid circle with the specified color
             nvgBeginPath(vg);
             nvgCircle(vg, screen_pos[0], screen_pos[1], 2.f);
-            nvgFillColor(vg, COLOR_RED);
+            nvgFillColor(vg, boidColor);
             nvgFill(vg);
             
-            // Calculate approximate velocity from position difference
+            // Calculate velocity vectors (same as before)
             if (i < prev_boids_pos.cols()) {
-                // Calculate current velocity
                 TV current_vel = (pos - prev_boids_pos.col(i)) / timestep;
                 
-                // Apply exponential smoothing
-                smoothed_velocities[i] = 
-                    smoothing_factor * current_vel + 
-                    (1 - smoothing_factor) * smoothed_velocities[i];
+                smoothed_velocities[i] = smoothing_factor * current_vel + 
+                                        (1 - smoothing_factor) * smoothed_velocities[i];
                 
                 if (smoothed_velocities[i].norm() > 0) {
-                    // Cap maximum velocity for visualization
                     T maxVel = static_cast<T>(0.02);
-                    
-                    // Scale the velocity vector for visualization
                     TV scaled_vel = smoothed_velocities[i].normalized() * 
                                   lineScale * 
                                   std::min(smoothed_velocities[i].norm(), maxVel);
                     
-                    // Convert to screen space
                     TV end_pos_01 = pos + scaled_vel;
                     TV screen_end_pos = shift_01_to_screen(end_pos_01, scale, width, height);
                     
-                    // Draw the line with customized color
                     nvgBeginPath(vg);
                     nvgMoveTo(vg, screen_pos[0], screen_pos[1]);
                     nvgLineTo(vg, screen_end_pos[0], screen_end_pos[1]);
-                    nvgStrokeColor(vg, velocityLineColor); // Use our custom color
-                    nvgStrokeWidth(vg, 0.7f); // Slightly increased from 0.5f
+                    nvgStrokeColor(vg, velocityLineColor);
+                    nvgStrokeWidth(vg, 0.7f);
                     nvgStroke(vg);
                 }
             }
         }
         
-        // Update previous positions for the next frame
+        // Update previous positions for next frame
         prev_boids_pos = boids_pos;
     }
 
@@ -368,17 +459,251 @@ public:
         return TV((pos_screen[0] - 0.5 * (0.5 - scale) * width) / (scale * width), (pos_screen[1] - 0.5 * (0.5 - scale) * height) / (scale * height));
     };
 
+    void drawBoidsWithColor(TVStack &boids_pos, NVGcolor boidColor, bool drawLeaderSeparately = false) {
+        int startIndex = 0;
+        if (drawLeaderSeparately) startIndex = 1;
+        
+        // Store current positions and smoothed velocities
+        static std::map<const void*, TVStack> prev_boids_pos_map;
+        static std::map<const void*, std::vector<TV>> smoothed_velocities_map;
+        
+        // Static variables for leader position tracking
+        static TV prev_leader_pos = TV::Zero();
+        static float leader_direction = 0.0f;
+        
+        // Use the pointer to boids_pos as a unique key for this swarm
+        const void* swarm_id = static_cast<const void*>(&boids_pos);
+        
+        // Initialize if first time for this swarm
+        if (prev_boids_pos_map.find(swarm_id) == prev_boids_pos_map.end()) {
+            prev_boids_pos_map[swarm_id] = boids_pos;
+            smoothed_velocities_map[swarm_id].resize(boids_pos.cols(), TV::Zero());
+            return; // Skip first frame for this swarm
+        }
+        
+        // Get reference to this swarm's stored data
+        TVStack& prev_pos = prev_boids_pos_map[swarm_id];
+        std::vector<TV>& smoothed_vels = smoothed_velocities_map[swarm_id];
+        
+        // Resize smoothed velocity array if needed
+        if (smoothed_vels.size() != boids_pos.cols()) {
+            smoothed_vels.resize(boids_pos.cols(), TV::Zero());
+        }
+        
+        // Smoothing parameters
+        const T smoothing_factor = static_cast<T>(0.1);
+        const T lineScale = static_cast<T>(1.5);
+        const T maxVel = static_cast<T>(0.015);
+        
+        // Line color
+        NVGcolor velocityLineColor = nvgRGBA(0, 180, 0, 255);
+        
+        // Position smoothing
+        static std::map<const void*, std::vector<TV>> smoothed_positions_map;
+        
+        // Initialize smoothed positions if needed
+        if (smoothed_positions_map.find(swarm_id) == smoothed_positions_map.end()) {
+            smoothed_positions_map[swarm_id].resize(boids_pos.cols());
+            for (int i = 0; i < boids_pos.cols(); i++) {
+                smoothed_positions_map[swarm_id][i] = boids_pos.col(i);
+            }
+        }
+        
+        // Resize if needed
+        if (smoothed_positions_map[swarm_id].size() != boids_pos.cols()) {
+            smoothed_positions_map[swarm_id].resize(boids_pos.cols());
+            for (int i = 0; i < boids_pos.cols(); i++) {
+                smoothed_positions_map[swarm_id][i] = boids_pos.col(i);
+            }
+        }
+        
+        // Store direction for boids
+        static std::map<const void*, std::vector<float>> boid_directions_map;
+        
+        // Initialize directions if needed
+        if (boid_directions_map.find(swarm_id) == boid_directions_map.end()) {
+            boid_directions_map[swarm_id].resize(boids_pos.cols(), 0.0f);
+        }
+        
+        // Resize directions if needed
+        if (boid_directions_map[swarm_id].size() != boids_pos.cols()) {
+            boid_directions_map[swarm_id].resize(boids_pos.cols(), 0.0f);
+        }
+        
+        // Reference to directions
+        std::vector<float>& boid_directions = boid_directions_map[swarm_id];
+        
+        // Update smoothed positions
+        std::vector<TV>& smoothed_positions = smoothed_positions_map[swarm_id];
+        
+        // Get leader position and direction (if available)
+        TV leaderPos = boids_pos.col(0); // First boid is the leader
+        float leaderDirection = leader_direction; // Use stored direction by default
+        
+        // Calculate leader direction from velocity
+        if (prev_pos.cols() > 0) {
+            TV leaderVel = (leaderPos - prev_pos.col(0)) / timestep;
+            if (leaderVel.norm() > 0.001) {
+                leaderDirection = atan2(leaderVel[1], leaderVel[0]);
+                leader_direction = leaderDirection; // Store for future use
+            }
+        }
+        
+        // Update leader position for next frame
+        prev_leader_pos = leaderPos;
+        
+        // Process each boid
+        for (int i = startIndex; i < boids_pos.cols(); i++) {
+            // Get the actual position from simulation
+            TV pos = boids_pos.col(i);
+            
+            // Apply position smoothing for visualization
+            const T pos_smoothing = static_cast<T>(0.2);
+            smoothed_positions[i] = pos_smoothing * pos + (1 - pos_smoothing) * smoothed_positions[i];
+            
+            // Use smoothed position for drawing
+            TV draw_pos = smoothed_positions[i];
+            TV screen_pos = shift_01_to_screen(TV(draw_pos[0], draw_pos[1]), scale, width, height);
+            
+            // Current direction for this boid
+            float dirAngle = boid_directions[i];
+            
+            // Calculate velocity
+            TV current_vel = TV::Zero();
+            if (i < prev_pos.cols()) {
+                current_vel = (pos - prev_pos.col(i)) / timestep;
+                
+                // Apply velocity smoothing
+                smoothed_vels[i] = smoothing_factor * current_vel + 
+                                  (1 - smoothing_factor) * smoothed_vels[i];
+            }
+            
+            // Distance to leader
+            T distToLeader = (pos - leaderPos).norm();
+            
+            // Velocity magnitude
+            T velMagnitude = smoothed_vels[i].norm();
+            
+            // Threshold for "not moving significantly"
+            const T velThreshold = static_cast<T>(0.005);
+            
+            // Distance threshold for "close to leader"
+            const T closeToLeaderThreshold = stopApproachLeaderRadius * 1.5;
+            
+            if (velMagnitude > velThreshold) {
+                // Boid is moving - use its velocity for direction
+                dirAngle = atan2(smoothed_vels[i][1], smoothed_vels[i][0]);
+                boid_directions[i] = dirAngle;
+                
+                // Draw the velocity line
+                TV scaled_vel = smoothed_vels[i].normalized() * 
+                              lineScale * 
+                              std::min(velMagnitude, maxVel);
+                
+                TV end_pos_01 = draw_pos + scaled_vel;
+                TV screen_end_pos = shift_01_to_screen(end_pos_01, scale, width, height);
+                
+                nvgBeginPath(vg);
+                nvgMoveTo(vg, screen_pos[0], screen_pos[1]);
+                nvgLineTo(vg, screen_end_pos[0], screen_end_pos[1]);
+                nvgStrokeColor(vg, velocityLineColor);
+                nvgStrokeWidth(vg, 0.7f);
+                nvgStroke(vg);
+            } 
+            else if (distToLeader < closeToLeaderThreshold) {
+                // Boid is close to leader and not moving significantly
+                // Gradually align with leader's direction
+                const float alignmentSpeed = 0.05f; // How quickly to align with leader
+                
+                // Calculate angle difference (ensure we take the shorter path)
+                float angleDiff = leaderDirection - boid_directions[i];
+                if (angleDiff > M_PI) angleDiff -= 2 * M_PI;
+                if (angleDiff < -M_PI) angleDiff += 2 * M_PI;
+                
+                // Gradually rotate towards leader direction
+                boid_directions[i] += angleDiff * alignmentSpeed;
+                
+                // Keep angle in proper range
+                if (boid_directions[i] > M_PI) boid_directions[i] -= 2 * M_PI;
+                if (boid_directions[i] < -M_PI) boid_directions[i] += 2 * M_PI;
+                
+                // Use the updated direction
+                dirAngle = boid_directions[i];
+            }
+            // Otherwise keep the current direction
+            
+            // Draw the NATO drone symbol
+            const float size = 5.0f;  // Base size of the symbol
+            
+            // Save current transform
+            nvgSave(vg);
+            
+            // Translate to boid position and rotate to match direction
+            nvgTranslate(vg, screen_pos[0], screen_pos[1]);
+            nvgRotate(vg, dirAngle);
+            
+            // Draw the NATO drone symbol
+            // Main diamond body
+            nvgBeginPath(vg);
+            nvgMoveTo(vg, size, 0);        // Front
+            nvgLineTo(vg, 0, size/2);      // Right
+            nvgLineTo(vg, -size/2, 0);     // Back
+            nvgLineTo(vg, 0, -size/2);     // Left
+            nvgClosePath(vg);
+            nvgFillColor(vg, boidColor);
+            nvgFill(vg);
+            
+            // Outline
+            nvgStrokeColor(vg, nvgRGBA(0, 0, 0, 100));
+            nvgStrokeWidth(vg, 0.5f);
+            nvgStroke(vg);
+            
+            // Wings
+            nvgBeginPath(vg);
+            nvgMoveTo(vg, 0, size*0.8f);     // Right wing tip
+            nvgLineTo(vg, -size*0.3f, 0);    // Body
+            nvgLineTo(vg, 0, -size*0.8f);    // Left wing tip
+            nvgStrokeColor(vg, boidColor);
+            nvgStrokeWidth(vg, 1.0f);
+            nvgStroke(vg);
+            
+            // Central dot
+            nvgBeginPath(vg);
+            nvgCircle(vg, 0, 0, size/5);
+            nvgFillColor(vg, nvgRGBA(0, 0, 0, 150));
+            nvgFill(vg);
+            
+            // Restore transform
+            nvgRestore(vg);
+        }
+        
+        // Update stored positions for next frame
+        prev_boids_pos_map[swarm_id] = boids_pos;
+    }
+
 protected:
     void mouseButtonPressed(int button, int mods) override {
         TV x = {mouseState.lastMouseX, mouseState.lastMouseY};
-        if(button == GLFW_MOUSE_BUTTON_LEFT && (x-leaderPos_screen).norm() < leaderRadius_screen) {
-            draggingCircle = true;
-            draggingCircleOffset = x - leaderPos_screen;
+        
+        // Make the interaction radius larger for easier selection
+        const float interactionRadius = 15.0f; // Increased from leaderRadius*_screen
+        
+        // Check if we're clicking on leader 1
+        if (button == GLFW_MOUSE_BUTTON_LEFT && (x-leaderPos1_screen).norm() < interactionRadius) {
+            draggingLeaderIndex = 0;
+            draggingCircleOffset = x - leaderPos1_screen;
+            std::cout << "Dragging leader 1" << std::endl; // Debug output
+        }
+        // Check if we're clicking on leader 2
+        else if (button == GLFW_MOUSE_BUTTON_LEFT && (x-leaderPos2_screen).norm() < interactionRadius) {
+            draggingLeaderIndex = 1;
+            draggingCircleOffset = x - leaderPos2_screen;
+            std::cout << "Dragging leader 2" << std::endl; // Debug output
         }
     }
 
     void mouseButtonReleased(int button, int mods) override {
-        draggingCircle = false;
+        draggingLeaderIndex = -1;
     }
 
 private:
@@ -441,13 +766,21 @@ private:
     bool neverRun = true;
     bool draggingCircle = false;
     TV draggingCircleOffset = TV::Zero(dim);
-    TV leaderPos_screen = TV::Zero(dim);
-    TV leaderPos_01 = TV::Zero(dim);
+    TV leaderPos1_screen = TV::Zero(dim);
+    TV leaderPos1_01 = TV::Zero(dim);
+    TV leaderPos2_screen = TV::Zero(dim);
+    TV leaderPos2_01 = TV::Zero(dim);
     T leaderRadius_01 = 0.01;
-    T leaderRadius_screen;
+    T leaderRadius1_screen = 0.0;
+    T leaderRadius2_screen = 0.0;
     std::chrono::high_resolution_clock::time_point lastFrame;
 
-    Boids<T, dim> boids = Boids<T, dim>(n);
+    // Add a second boids instance for the second swarm
+    Boids<T, dim> boids1 = Boids<T, dim>(n);
+    Boids<T, dim> boids2 = Boids<T, dim>(n);
+    
+    // Track which leader is being dragged
+    int draggingLeaderIndex = -1;
 };
 
 int main(int, char**)
