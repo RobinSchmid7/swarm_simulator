@@ -267,16 +267,16 @@ public:
                                                                 scale, width, height);
                     leaderRadius2_screen = leaderPos2_01_shifted(0) - leaderPos2_screen(0);
                     
-                    // Draw leader 1 (green) with a larger size
+                    // Draw leader 1 (should be red to match its flock) with a larger size
                     nvgBeginPath(vg);
-                    nvgCircle(vg, leaderPos1_screen[0], leaderPos1_screen[1], 5.f); // Increased from 2.f to 5.f
-                    nvgFillColor(vg, COLOR_LEADER); // Green
+                    nvgCircle(vg, leaderPos1_screen[0], leaderPos1_screen[1], 5.f);
+                    nvgFillColor(vg, COLOR_RED); // Changed from COLOR_LEADER (green) to COLOR_RED
                     nvgFill(vg);
                     
-                    // Draw leader 2 (blue) with a larger size
+                    // Draw leader 2 (should be green to match its flock) with a larger size
                     nvgBeginPath(vg);
-                    nvgCircle(vg, leaderPos2_screen[0], leaderPos2_screen[1], 5.f); // Increased from 2.f to 5.f
-                    nvgFillColor(vg, COLOR_BLUE);
+                    nvgCircle(vg, leaderPos2_screen[0], leaderPos2_screen[1], 5.f);
+                    nvgFillColor(vg, COLOR_GREEN); // Changed from COLOR_BLUE to COLOR_GREEN
                     nvgFill(vg);
 
                     // Draw debug text to show leader positions
@@ -385,7 +385,7 @@ public:
         // Smoothing and line params
         const T smoothing_factor = static_cast<T>(0.2);
         const T lineScale = static_cast<T>(2.0);
-        NVGcolor velocityLineColor = nvgRGBA(0, 180, 0, 255);
+        NVGcolor velocityLineColor = boidColor;
         
         for (int i = startIndex; i < boids_pos.cols(); i++) {
             TV pos = boids_pos.col(i);
@@ -495,9 +495,6 @@ public:
         const T lineScale = static_cast<T>(1.5);
         const T maxVel = static_cast<T>(0.015);
         
-        // Line color
-        NVGcolor velocityLineColor = nvgRGBA(0, 180, 0, 255);
-        
         // Position smoothing
         static std::map<const void*, std::vector<TV>> smoothed_positions_map;
         
@@ -606,7 +603,7 @@ public:
                 nvgBeginPath(vg);
                 nvgMoveTo(vg, screen_pos[0], screen_pos[1]);
                 nvgLineTo(vg, screen_end_pos[0], screen_end_pos[1]);
-                nvgStrokeColor(vg, velocityLineColor);
+                nvgStrokeColor(vg, boidColor);
                 nvgStrokeWidth(vg, 0.7f);
                 nvgStroke(vg);
             } 
@@ -633,7 +630,7 @@ public:
             // Otherwise keep the current direction
             
             // Draw the NATO drone symbol
-            const float size = 5.0f;  // Base size of the symbol
+            const float size = 8.0f;  // Increased from 5.0f to make boids bigger
             
             // Save current transform
             nvgSave(vg);
