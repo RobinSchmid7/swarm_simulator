@@ -1168,5 +1168,9 @@ public:
         }
         std::cout << "Group 1: " << numGroup1 << ", Group 2: " << numGroup2 << std::endl;
     }
+
+    TVStack getVelocities() const {
+        return velocities;
+    }
 };
 #endif

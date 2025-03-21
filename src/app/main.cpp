@@ -96,19 +96,19 @@ public:
         End();
 
         // Collaboration parameters
-        SetNextWindowPos(ImVec2(0, 780), ImGuiCond_Always);
-        SetNextWindowSize(ImVec2(600,220), ImGuiCond_Always);
-        Begin("Collaboration Parameters");
-        const char* strategyNames[] = {"No strategy", "Go to closest of own group", "Go to center and stay", "Form groups of three and chase closest enemy", "Form groups of three and move to bounce off point"};
-        Combo("Strategy red", (int*)&collaborationStrategyRed, strategyNames, std::size(strategyNames));
-        Combo("Strategy blue", (int*)&collaborationStrategyBlue, strategyNames, std::size(strategyNames));
-        SliderFloat("Breeding radius", &breedingRadius, 0.0f, 1.0f, "%.5f");
-        SliderFloat("Elimination radius", &eliminationRadius, 0.0f, 1.0f, "%.5f");
-        SliderInt("Max # boids per iteration", &maxNumNewBreeded, 0, 5, "%i");
-        SliderInt("Breeding pause steps", &breedingPauseSteps, 10, 1000, "%i");
-        SliderFloat("Hunter group size", &hunterGroupSize, 0.01f, 0.5f, "%.5f");
-        SliderInt("Max # of boids", &maxNumParticles, 1, 1000, "%i");
-        End();
+        // SetNextWindowPos(ImVec2(0, 780), ImGuiCond_Always);
+        // SetNextWindowSize(ImVec2(600,220), ImGuiCond_Always);
+        // Begin("Collaboration Parameters");
+        // const char* strategyNames[] = {"No strategy", "Go to closest of own group", "Go to center and stay", "Form groups of three and chase closest enemy", "Form groups of three and move to bounce off point"};
+        // Combo("Strategy red", (int*)&collaborationStrategyRed, strategyNames, std::size(strategyNames));
+        // Combo("Strategy blue", (int*)&collaborationStrategyBlue, strategyNames, std::size(strategyNames));
+        // SliderFloat("Breeding radius", &breedingRadius, 0.0f, 1.0f, "%.5f");
+        // SliderFloat("Elimination radius", &eliminationRadius, 0.0f, 1.0f, "%.5f");
+        // SliderInt("Max # boids per iteration", &maxNumNewBreeded, 0, 5, "%i");
+        // SliderInt("Breeding pause steps", &breedingPauseSteps, 10, 1000, "%i");
+        // SliderFloat("Hunter group size", &hunterGroupSize, 0.01f, 0.5f, "%.5f");
+        // SliderInt("Max # of boids", &maxNumParticles, 1, 1000, "%i");
+        // End();
     }
 
     void drawNanoVG() override {
@@ -196,18 +196,22 @@ public:
                     // Collision object
                     drawCollisionObject(obstacles);
 
-                    // Leader
+                    // Set leader position
                     leaderPos_01 = shift_screen_to_01(leaderPos_screen, scale, width, height);
                     boids_pos.col(0) = leaderPos_01;
                     boids.setLeaderPosition(leaderPos_01);
-                    nvgBeginPath(vg);
+                    
+                    // Calculate leaderRadius_screen for collision detection but don't use it for drawing
                     TV leaderPos_01_shifted = shift_01_to_screen(TV(leaderPos_01(0)+leaderRadius_01,leaderPos_01(1)+leaderRadius_01), scale, width, height);
                     leaderRadius_screen = leaderPos_01_shifted(0) - leaderPos_screen(0);
-                    nvgCircle(vg, leaderPos_screen[0], leaderPos_screen[1], leaderRadius_screen);
+                    
+                    // Draw leader with same size as other boids but keep green color
+                    nvgBeginPath(vg);
+                    nvgCircle(vg, leaderPos_screen[0], leaderPos_screen[1], 2.f); // Use fixed size of 2.f
                     nvgFillColor(vg, COLOR_LEADER);
                     nvgFill(vg);
 
-                    // Boids
+                    // Draw the rest of the boids
                     drawBoids(boids_pos, true);
                 }
                 break;
@@ -256,16 +260,80 @@ public:
     void drawBoids(TVStack &boids_pos, bool drawLeaderSeparately = false) {
         int startIndex = 0;
         if (drawLeaderSeparately) startIndex = 1;
+        
+        // Store current positions and smoothed velocities
+        static TVStack prev_boids_pos;
+        static std::vector<TV> smoothed_velocities;
+        static bool first_frame = true;
+        
+        // Smoothing factor (between 0 and 1)
+        const T smoothing_factor = static_cast<T>(0.2);
+        
+        // Line scaling factor
+        const T lineScale = static_cast<T>(2.0);
+        
+        // Define a darker green color for the velocity lines
+        NVGcolor velocityLineColor = nvgRGBA(0, 180, 0, 255); // Full opacity, darker green
+        
+        // Initialize on first call
+        if (first_frame) {
+            prev_boids_pos = boids_pos;
+            smoothed_velocities.resize(boids.getParticleNumber(), TV::Zero());
+            first_frame = false;
+            return;
+        }
+        
+        // Resize smoothed_velocities if number of boids changed
+        if (smoothed_velocities.size() != boids.getParticleNumber()) {
+            smoothed_velocities.resize(boids.getParticleNumber(), TV::Zero());
+        }
+        
         for (int i = startIndex; i < boids.getParticleNumber(); i++) {
             TV pos = boids_pos.col(i);
-            nvgBeginPath(vg);
-
             TV screen_pos = shift_01_to_screen(TV(pos[0], pos[1]), scale, width, height);
+            
+            // Draw boid circle
+            nvgBeginPath(vg);
             nvgCircle(vg, screen_pos[0], screen_pos[1], 2.f);
-
             nvgFillColor(vg, COLOR_RED);
             nvgFill(vg);
+            
+            // Calculate approximate velocity from position difference
+            if (i < prev_boids_pos.cols()) {
+                // Calculate current velocity
+                TV current_vel = (pos - prev_boids_pos.col(i)) / timestep;
+                
+                // Apply exponential smoothing
+                smoothed_velocities[i] = 
+                    smoothing_factor * current_vel + 
+                    (1 - smoothing_factor) * smoothed_velocities[i];
+                
+                if (smoothed_velocities[i].norm() > 0) {
+                    // Cap maximum velocity for visualization
+                    T maxVel = static_cast<T>(0.02);
+                    
+                    // Scale the velocity vector for visualization
+                    TV scaled_vel = smoothed_velocities[i].normalized() * 
+                                  lineScale * 
+                                  std::min(smoothed_velocities[i].norm(), maxVel);
+                    
+                    // Convert to screen space
+                    TV end_pos_01 = pos + scaled_vel;
+                    TV screen_end_pos = shift_01_to_screen(end_pos_01, scale, width, height);
+                    
+                    // Draw the line with customized color
+                    nvgBeginPath(vg);
+                    nvgMoveTo(vg, screen_pos[0], screen_pos[1]);
+                    nvgLineTo(vg, screen_end_pos[0], screen_end_pos[1]);
+                    nvgStrokeColor(vg, velocityLineColor); // Use our custom color
+                    nvgStrokeWidth(vg, 0.7f); // Slightly increased from 0.5f
+                    nvgStroke(vg);
+                }
+            }
         }
+        
+        // Update previous positions for the next frame
+        prev_boids_pos = boids_pos;
     }
 
     void drawCollisionObject(Matrix<T, 3, Eigen::Dynamic> &obstacles) {
@@ -286,7 +354,7 @@ public:
             VectorXT randomPosAndRadius = VectorXT::Zero(3, 1).unaryExpr([&](T dummy){return static_cast <T> (rand()) / static_cast <T> (RAND_MAX);});
             obstacles(0,i) = randomPosAndRadius(0);
             obstacles(1,i) = randomPosAndRadius(1);
-            obstacles(2,i) = 0.2*randomPosAndRadius(2);
+            obstacles(2,i) = 0.05*randomPosAndRadius(2);
         }
     }
 
@@ -338,8 +406,8 @@ private:
     int n = 20;
 
     // Behaviour parameters
-    MethodTypes newMethod = FREEFALL;
-    MethodTypes currentMethod = FREEFALL;
+    MethodTypes newMethod = LEADER;
+    MethodTypes currentMethod = LEADER;
     SchemeTypes currentScheme = SYMPLETIC_EULER;
     InitialVelocityType currentInitialVelocity = ZERO_VELOCITY;
     T boidMass = 3.0;
@@ -367,7 +435,7 @@ private:
     T hunterGroupSize = 0.1;
 
     // Drawing parameters
-    T scale = 0.3;
+    T scale = 0.8;
     bool drawOrigin = true;
     bool drawLeader = true;
     bool neverRun = true;
@@ -384,9 +452,9 @@ private:
 
 int main(int, char**)
 {
-    int width = 720; // Default: 720
-    int height = 720; // Default: 720
-    TestApp app(width, height, "Assignment 3 Boids");
+    int width = 1920; // Default: 720
+    int height = 1080; // Default: 720
+    TestApp app(width, height, "Boids");
     app.run();
 
     return 0;
