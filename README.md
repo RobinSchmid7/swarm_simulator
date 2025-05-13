@@ -1,7 +1,7 @@
 # Swarm Simulator
 An interactive 2D boid-based swarm simulation that models complex flocking behaviors.
 
-![Demo Video](docs/demo.webm)
+![Demo Video](docs/demo.gif)
 
 ## Features
 - Physics-based boid simulation with cohesion, alignment, and separation behaviors
