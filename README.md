@@ -1,4 +1,6 @@
-# boids
+# Swarm Simulator
+
+![Demo Video](docs/demo.webm)
 
 ## Installation
 ```bash
