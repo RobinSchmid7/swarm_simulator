@@ -1,4 +1,3 @@
-
 include(ExternalProject)
 include(FetchContent)
 
@@ -7,7 +6,7 @@ include(FetchContent)
 FetchContent_Declare(
     eigen
     URL                 https://gitlab.com/libeigen/eigen/-/archive/3.3.7/eigen-3.3.7.zip
-    URL_HASH            MD5=888aab45512cc0c734b3e8f60280daba
+    URL_HASH            MD5=1a914f7b208df0c46c01d0e265a6f341
 )
 FetchContent_GetProperties(eigen)
 if(NOT eigen_POPULATED)
